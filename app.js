@@ -389,6 +389,24 @@ app.post("/api/users/:id/verify", auth, noFileUpload, async (req, res) => {
   }
 });
 
+
+// Delete user by ID
+app.delete("/api/users/:id", auth, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query("DELETE FROM users WHERE id = $1 RETURNING *", [id]);
+    
+    if (result.rowCount === 0) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    res.status(200).send({ message: "User deleted successfully" });
+  } catch (error) {
+    res.status(500).send({ message: "Error deleting user" });
+  }
+});
+
+
 const createUsersTable = async () => {
   try {
    await pool.query(`
