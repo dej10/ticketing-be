@@ -123,7 +123,7 @@ jobs:
              pm2 delete ${{ env.DOMAIN }}
 
             # Restart app with PM2
-             pm2 reload ${{ env.DOMAIN }}
+             pm2 reload ecosystem.config.js
 
              # Save/Synchronize changes
              pm2 save
@@ -132,4 +132,4 @@ jobs:
              cp ./.github/workflows/nginx-configs/${{ env.DOMAIN }}.conf /etc/nginx/sites-enabled/${{ env.DOMAIN }}.conf
 
              # Restart nginx
-             sudo service nginx restart
+             echo '${{ secrets.PASSWORD}}' | sudo -S service nginx restart
