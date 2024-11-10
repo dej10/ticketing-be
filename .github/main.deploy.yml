@@ -1,0 +1,138 @@
+name: Deploy Ticketing API PROD to Nebula Server
+
+on:
+  push:
+    branches: [main]
+
+env:
+  DOMAIN: ticketing.dev
+  ENVIRONMENT: Production
+  NAME: Ticketing Dev
+  PROJECT_DIR: /var/www/backend
+  # will be updated with {{av_port}} logic
+  PORT: 3000
+  NODE_VERSION: 18
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.commit-details.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version (short SHA and current date time)
+        id: commit-details
+        run: |
+          short_sha=$(git rev-parse --short HEAD)
+          date_time=$(date '+%d-%m-%y-%H-%M')
+          echo "version=$short_sha-$date_time" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js and Cache PNPM
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 8
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile --force --config.platform=linux --config.architecture=x64
+
+      - name: Create .env file
+        run: |
+          echo "DATABASE_NAME=${{ secrets.DATABASE_NAME }}" >> .env
+          echo "DATABASE_USER=${{ secrets.DATABASE_USER }}" >> .env
+          echo "DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}" >> .env
+          echo "DATABASE_PORT=${{ secrets.DATABASE_PORT }}" >> .env
+          echo "CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}" >> .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
+          echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
+          echo "EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}" >> .env
+          echo "EMAIL_ADDRESS=${{ secrets.EMAIL_ADDRESS }}" >> .env
+          echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> .env
+          echo "PORT=" >> .env
+
+      - name: Build the app
+        run: pnpm build
+
+      - name: Remove .git folder
+        run: rm -rf .git
+
+      - name: Deploy to Digital Ocean
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_DEPLOY_KEY }}
+          rm: true
+          source: .
+          target: ${{ env.PROJECT_DIR }}/${{ env.DOMAIN }}
+          strip_components: 1
+
+      - name: Restart the app (nginx and pnpm)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_DEPLOY_KEY }}
+          script: |
+            # Change working directory
+             cd ${{ env.PROJECT_DIR }}/${{ env.DOMAIN }}
+
+             # Ensure all global packages are loaded up zsh shell, especially nvm
+             source ~/.zshrc
+
+             # Pick an available port on server
+             av_port=$(shuf -i 8000-60000 -n 1)
+             while [[ "$(lsof -i :$av_port)" ]]; do
+               av_port=$(shuf -i 8000-60000 -n 1)
+             done
+
+             # Update port on .env
+             sed -i "s/PORT=[0-9]*/PORT=${av_port}/" .env
+
+            # Update port on conf
+            sed -i "s/proxy_pass http:\/\/localhost:[0-9]*/proxy_pass http:\/\/localhost:${av_port}/" '/etc/nginx/sites-enabled/${{ env.DOMAIN }}.conf'
+
+             # Install Node Version  & PM2 on said Node Version
+             nvm install ${{ env.NODE_VERSION }}
+             nvm use ${{ env.NODE_VERSION }}
+             npm install -g pm2
+
+             # Clear domain PM2 logs
+             pm2 flush ${{ env.DOMAIN }}
+
+             # Delete old instance
+             pm2 delete ${{ env.DOMAIN }}
+
+            # Restart app with PM2
+             pm2 reload ${{ env.DOMAIN }}
+
+             # Save/Synchronize changes
+             pm2 save
+
+             # Copy and override conf in nginx
+             cp ./.github/workflows/nginx-configs/${{ env.DOMAIN }}.conf /etc/nginx/sites-enabled/${{ env.DOMAIN }}.conf
+
+             # Restart nginx
+             sudo service nginx restart
