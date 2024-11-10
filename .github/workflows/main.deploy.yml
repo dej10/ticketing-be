@@ -106,7 +106,7 @@ jobs:
              done
 
              # Update port on .env
-             sed -i "s/PORT=[0-9]*/PORT=${av_port}/" .env
+             sed -i "/^PORT=/ s/PORT=[0-9]*/PORT=${av_port}/" .env
 
             # Update port on conf
             sed -i "s/proxy_pass http:\/\/localhost:[0-9]*/proxy_pass http:\/\/localhost:${av_port}/" '/etc/nginx/sites-enabled/${{ env.DOMAIN }}.conf'
