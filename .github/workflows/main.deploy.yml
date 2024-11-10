@@ -72,13 +72,10 @@ jobs:
           echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> .env
           echo "PORT=" >> .env
 
-      - name: Build the app
-        run: pnpm build
-
       - name: Remove .git folder
         run: rm -rf .git
 
-      - name: Deploy to Digital Ocean
+      - name: Deploy to Nebula
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.HOST }}

@@ -7,10 +7,10 @@ const PDFDocument = require("pdfkit");
 const crypto = require("crypto");
 const cors = require("cors");
 const { Pool } = require("pg");
-const process = require('node:process')
-const dotenv = require('dotenv')
+const process = require("node:process");
+const dotenv = require("dotenv");
 
-dotenv.config()
+dotenv.config();
 
 const app = express();
 
@@ -27,8 +27,7 @@ app.use(
 );
 
 // PostgreSQL Client Setup
-console.log(process.env.DATABASE_USER);
-console.log(process.env.DATABASE_NAME);
+
 const pool = new Pool({
   user: process.env.DATABASE_USER,
   host: "localhost",
@@ -55,6 +54,11 @@ const generateQrCode = async (text) => {
       }
     );
   });
+};
+
+// generate ulid
+const generateUlid = () => {
+  return crypto.randomBytes(10).toString("hex");
 };
 
 const generatePDF = async (user, qrcodeBuffer) => {
@@ -127,7 +131,7 @@ const isAdmin = (req, res, next) => {
 };
 
 // API Routes
-app.post("/api/admin/login", noFileUpload, async (req, res) => {
+app.post("/api/auth/admin-login", noFileUpload, async (req, res) => {
   const { email, password } = req.body;
   try {
     const userResult = await pool.query(
@@ -169,42 +173,46 @@ app.post("/api/auth/logout", auth, async (req, res) => {
 app.post("/api/users", auth, isAdmin, noFileUpload, async (req, res) => {
   try {
     const { name, email } = req.body;
-    const role = "user";
+    const role = "customer";
 
-    // Generate unique qrcode
+    // Generate unique ID
+    const id = generateUlid();
+
+    // Check if user already exists
+    const existingUser = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
+    if (existingUser.rows.length > 0) {
+      return res.status(400).send({ message: "User already exists" });
+    }
+
+    // Generate unique QR code
     const qrcode = crypto.randomBytes(16).toString("hex");
 
-    // Create user in PostgreSQL
+    // Insert user into PostgreSQL
     const result = await pool.query(
-      "INSERT INTO users (name, email, role, qrcode, password) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [name, email, role, qrcode, ""]
+      "INSERT INTO users (id, name, email, role, qrcode, password) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
+      [id, name, email, role, qrcode, ""]
     );
 
     const user = result.rows[0];
 
-    // if user email exists throw error
-    if (!user) {
-      return res.status(400).send({ message: "User already exists" });
-    }
-
-    // Generate qrcode image
+    // Generate QR code image
     const qrcodeBuffer = await generateQrCode(qrcode);
 
     // Generate PDF
     const pdfBuffer = await generatePDF(user, qrcodeBuffer);
 
-    // Download PDF
-    // res.setHeader('Content-Type', 'application/pdf');
-    // res.setHeader('Content-Disposition', 'attachment; filename=qrcode.pdf');
-    // res.send(pdfBuffer);
-
-    // Send email
+    // Send email (Uncomment in production)
     // await sendEmail(email, pdfBuffer);
-    delete user.password;
 
+    delete user.password;
     res.status(201).send(user);
   } catch (error) {
-    res.status(400).send(error);
+    res
+      .status(400)
+      .send({ message: "Error creating user", details: error.message });
   }
 });
 
@@ -264,7 +272,7 @@ app.post("/api/verify/:qrcode", auth, fileUpload, async (req, res) => {
   }
 });
 
-// Admin: Get all non-admin users with pagination and search
+// Admin: Get all users (excluding admins)
 app.get("/api/users", auth, isAdmin, async (req, res) => {
   const { page = 1, limit = 20, q = "" } = req.query;
   const offset = (page - 1) * limit;
@@ -325,7 +333,6 @@ app.get(
       const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [
         req.params.id,
       ]);
-      console.log(req.params.id);
       const user = userResult.rows[0];
 
       if (!user) {
@@ -383,31 +390,46 @@ app.post("/api/users/:id/verify", auth, noFileUpload, async (req, res) => {
 });
 
 const createUsersTable = async () => {
-  await pool.query(`
+  try {
+   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id SERIAL PRIMARY KEY,
-      name VARCHAR(100),
-      email VARCHAR(100) UNIQUE,
-      role VARCHAR(50),
-      password VARCHAR(255)
+      id VARCHAR(32) PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      email VARCHAR(100) UNIQUE NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'customer',
+      password VARCHAR(255) NOT NULL,
+      qrcode VARCHAR(50),
+      is_verified BOOLEAN DEFAULT FALSE,
+      verification_time TIMESTAMP
     );
   `);
+    console.log('Users table created or already exists.');
+  } catch (error) {
+    console.error('Error creating users table:', error);
+  }
 };
+
+
 
 const seedAdmins = async (admins) => {
   const admin = admins[0];
-  
+
   // Check if admin already exists
-  const result = await pool.query("SELECT * FROM users WHERE email = $1", [admin.email]);
+  const result = await pool.query("SELECT * FROM users WHERE email = $1", [
+    admin.email,
+  ]);
   if (result.rows.length > 0) {
     console.log("Admin already exists. Skipping seed.");
     return;
   }
 
+  // Hash the password
+  const hashedPassword = await bcrypt.hash(admin.password, 10);
+
   // Seed admin if not present
   await pool.query(
-    "INSERT INTO users (name, email, role, password) VALUES ($1, $2, 'admin', $3)",
-    [admin.name, admin.email, admin.password]
+    "INSERT INTO users (id, name, email, role, password) VALUES ($1, $2, $3, 'admin', $4)",
+    [admin.id, admin.name, admin.email, hashedPassword]
   );
   console.log("Admin seeded successfully.");
 };
@@ -417,13 +439,13 @@ const seedAdmins = async (admins) => {
   await createUsersTable();
   await seedAdmins([
     {
+      id: generateUlid(),
       name: process.env.ADMIN_NAME,
       email: process.env.ADMIN_EMAIL,
       password: process.env.ADMIN_PASSWORD,
     },
   ]);
 })();
-
 
 // Example check
 pool.connect((err) => {
