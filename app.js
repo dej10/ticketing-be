@@ -19,24 +19,39 @@ const noFileUpload = multer().none();
 const fileUpload = multer().any();
 
 const corsOpts = {
-  origin: '*',
+  origin: ['http://localhost:3002', process.env.CORS_ORIGIN],
 
-  methods: [
-    'GET',
-    'POST',
-    'DELETE'
-  ],
+  methods: ['GET', 'POST', 'DELETE'],
 
-  allowedHeaders: [
-    'Content-Type',
-  ],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+
+  credentials: true,
 };
 
 // Middleware
 app.use(
   express.json(),
   cors(corsOpts),
+  function (req, res, next) {
+    const allowedOrigins = [
+      'http://localhost:3002',
+      process.env.CORS_ORIGIN,
+    ];
+    const origin = req.headers.origin;
+    if (allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization'
+    );
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    next();
+  }
 );
+
+
 
 
 
