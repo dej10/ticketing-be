@@ -67,9 +67,10 @@ jobs:
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
           echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
           echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
-          echo "EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}" >> .env
+          # echo "EMAIL_SECURE=${{ secrets.EMAIL_SECURE }}" >> .env
           echo "EMAIL_ADDRESS=${{ secrets.EMAIL_ADDRESS }}" >> .env
           echo "EMAIL_PASSWORD=${{ secrets.EMAIL_PASSWORD }}" >> .env
+          echo "PDF_BACKGROUND_IMAGE_URL=${{ secrets.PDF_BACKGROUND_IMAGE_URL }}" >> .env
           echo "PORT=" >> .env
 
       - name: Remove .git folder
