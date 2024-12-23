@@ -18,13 +18,27 @@ const multer = require("multer");
 const noFileUpload = multer().none();
 const fileUpload = multer().any();
 
+const corsOpts = {
+  origin: '*',
+
+  methods: [
+    'GET',
+    'POST',
+    'DELETE'
+  ],
+
+  allowedHeaders: [
+    'Content-Type',
+  ],
+};
+
 // Middleware
 app.use(
   express.json(),
-  cors({
-    origin: process.env.CORS_ORIGIN,
-  })
+  cors(corsOpts),
 );
+
+
 
 // PostgreSQL Client Setup
 
