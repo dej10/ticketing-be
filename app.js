@@ -19,7 +19,7 @@ const noFileUpload = multer().none();
 const fileUpload = multer().any();
 
 const corsOpts = {
-  origin: ['http://localhost:3002', process.env.CORS_ORIGIN],
+  origin: ['http://localhost:3002', 'https://ticketing-fe.pages.dev'],
 
   methods: ['GET', 'POST', 'DELETE'],
 
@@ -35,7 +35,7 @@ app.use(
   function (req, res, next) {
     const allowedOrigins = [
       'http://localhost:3002',
-      process.env.CORS_ORIGIN,
+      'https://ticketing-fe.pages.dev',
     ];
     const origin = req.headers.origin;
     if (allowedOrigins.includes(origin)) {
