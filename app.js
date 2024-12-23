@@ -61,18 +61,42 @@ const generateUlid = () => {
   return crypto.randomBytes(10).toString("hex");
 };
 
-const generatePDF = async (user, qrcodeBuffer) => {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument();
+// Fetch image from Cloudinary or any URL
+const fetchImage = async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+  return Buffer.from(await response.arrayBuffer());
+};
+
+
+const generatePDF = async (username, qrcodeBuffer) => {
+  return new Promise(async (resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', layout: 'portrait' });
     const chunks = [];
 
-    doc.on("data", (chunk) => chunks.push(chunk));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', (err) => reject(err));
 
-    doc.fontSize(25).text(user.name, 100, 100);
-    doc.fontSize(25).text(user.email, 100, 135);
-    doc.image(qrcodeBuffer, 100, 175, { width: 300 });
-    doc.end();
+    try {
+      // Fetch the background image from the Cloudinary URL
+      const bgImageBuffer = await fetchImage(process.env.PDF_BACKGROUND_IMAGE_URL);
+
+      // Add the background image
+      doc.image(bgImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+
+      // Add QR Code inside the white square
+      doc.image(qrcodeBuffer, 100, 170, { width: 120, height: 140 },);
+
+      // Add username on top of the QR Code
+      doc.fontSize(24).fillColor('white').text(username, 300, 140, { align: 'center' });
+      // add tan colour rectangle
+      doc.rect(320, 165, 220, 30).fillAndStroke('#A07734', '#A07734');
+
+      doc.end();
+    } catch (error) {
+      reject(error);
+    }
   });
 };
 
@@ -80,7 +104,7 @@ const generatePDF = async (user, qrcodeBuffer) => {
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
   port: process.env.EMAIL_PORT,
-  secure: process.env.EMAIL_SECURE,
+  // secure: process.env.EMAIL_SECURE,
   auth: {
     user: process.env.EMAIL_ADDRESS,
     pass: process.env.EMAIL_PASSWORD,
@@ -202,9 +226,10 @@ app.post("/api/users", auth, isAdmin, noFileUpload, async (req, res) => {
     const qrcodeBuffer = await generateQrCode(qrcode);
 
     // Generate PDF
-    const pdfBuffer = await generatePDF(user, qrcodeBuffer);
+    const pdfBuffer = await generatePDF(name, qrcodeBuffer);
 
     // Send email (Uncomment in production)
+    await sendEmail(email, pdfBuffer);
     // await sendEmail(email, pdfBuffer);
 
     delete user.password;
@@ -273,6 +298,7 @@ app.post("/api/verify/:qrcode", auth, fileUpload, async (req, res) => {
 });
 
 // Admin: Get all users (excluding admins)
+// sort by created date
 app.get("/api/users", auth, isAdmin, async (req, res) => {
   const { page = 1, limit = 20, q = "" } = req.query;
   const offset = (page - 1) * limit;
@@ -343,10 +369,12 @@ app.get(
       const qrcodeBuffer = await generateQrCode(user.qrcode);
 
       // Generate PDF with QR code
-      const pdfBuffer = await generatePDF(user, qrcodeBuffer);
+      const pdfBuffer = await generatePDF(user.name, qrcodeBuffer);
 
       // Set response headers for file download
-      res.setHeader("Content-Type", "application/pdf");
+      // res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Length", pdfBuffer.length);
+      res.setHeader("Content-Type", "application/octet-stream");
       res.setHeader(
         "Content-Disposition",
         `attachment; filename=${user.name}_qrcode.pdf`
@@ -409,17 +437,17 @@ app.delete("/api/users/:id", auth, isAdmin, async (req, res) => {
 
 const createUsersTable = async () => {
   try {
-   await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id VARCHAR(32) PRIMARY KEY,
-      name VARCHAR(100) NOT NULL,
-      email VARCHAR(100) UNIQUE NOT NULL,
-      role VARCHAR(50) NOT NULL DEFAULT 'customer',
-      password VARCHAR(255) NOT NULL,
-      qrcode VARCHAR(50),
-      is_verified BOOLEAN DEFAULT FALSE,
-      verification_time TIMESTAMP
-    );
+  await pool.query(`
+   CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(32) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'customer',
+    password VARCHAR(255) NOT NULL,
+    qrcode VARCHAR(50),
+    is_verified BOOLEAN DEFAULT FALSE,
+    verification_time TIMESTAMP NULL
+   );
   `);
     console.log('Users table created or already exists.');
   } catch (error) {
