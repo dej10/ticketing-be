@@ -3,11 +3,14 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const nodemailer = require("nodemailer");
 const bwipjs = require("bwip-js");
-const PDFDocument = require("pdfkit");
 const crypto = require("crypto");
 const cors = require("cors");
 const { Pool } = require("pg");
 const process = require("node:process");
+const fs = require('fs');
+const path = require('path');
+const fontkit = require('@pdf-lib/fontkit');
+const { PDFDocument, rgb } = require('pdf-lib');
 const dotenv = require("dotenv");
 
 dotenv.config();
@@ -97,37 +100,40 @@ const fetchImage = async (url) => {
   return Buffer.from(await response.arrayBuffer());
 };
 
-
 const generatePDF = async (username, qrcodeBuffer) => {
-  return new Promise(async (resolve, reject) => {
-    const doc = new PDFDocument({ size: 'A4', layout: 'portrait' });
-    const chunks = [];
+  try {
+    const pdfPath = path.resolve(__dirname, './assets/access_card.pdf');
+    const existingPdfBytes = fs.readFileSync(pdfPath);
 
-    doc.on('data', (chunk) => chunks.push(chunk));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', (err) => reject(err));
+    const pdfDoc = await PDFDocument.load(existingPdfBytes);
+    pdfDoc.registerFontkit(fontkit);
 
-    try {
-      // Fetch the background image from the Cloudinary URL
-      const bgImageBuffer = await fetchImage(process.env.PDF_BACKGROUND_IMAGE_URL);
+    const qrImage = await pdfDoc.embedPng(qrcodeBuffer);
+    const fontPath = path.resolve(__dirname, './assets/fonts/PlayfairDisplay.ttf');
+    const fontBytes = fs.readFileSync(fontPath);
+    const playfairFont = await pdfDoc.embedFont(fontBytes);
 
-      // Add the background image
-      doc.image(bgImageBuffer, 0, 0, { width: doc.page.width, height: doc.page.height });
+    const pages = pdfDoc.getPages();
+    const firstPage = pages[0];
 
-      // Add QR Code inside the white square
-      doc.image(qrcodeBuffer, 100, 170, { width: 120, height: 140 },);
+    firstPage.drawImage(qrImage, { x: 170, y: 210, width: 240, height: 240 });
+    username = username.charAt(0).toUpperCase() + username.slice(1);
 
-      // Add username on top of the QR Code
-      doc.fontSize(24).fillColor('white').text(username, 300, 140, { align: 'center' });
-      // add tan colour rectangle
-      doc.rect(320, 165, 220, 30).fillAndStroke('#A07734', '#A07734');
+    firstPage.drawText(username, {
+      x: 650,
+      y: 400,
+      size: 30,
+      font: playfairFont,
+      color: rgb(1, 1, 1),
+    });
 
-      doc.end();
-    } catch (error) {
-      reject(error);
-    }
-  });
+    const pdfBuffer = await pdfDoc.save();
+    return pdfBuffer; // Return the PDF buffer
+  } catch (error) {
+    console.error('Error modifying PDF:', error);
+  }
 };
+
 
 // Email Configuration
 const transporter = nodemailer.createTransport({
@@ -140,15 +146,20 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-const sendEmail = async (email, pdfBuffer) => {
+const sendEmail = async (email, pdfBuffer, name) => {
   await transporter.sendMail({
     from: process.env.EMAIL_ADDRESS,
     to: email,
-    subject: "Your Event QrCode",
-    text: "Please find your event qrcode attached.",
+    subject: "Your Invite to our Wedding",
+    text: `
+    Dear ${name}, \n
+    Thank you for RSVPing to our wedding!  \n
+    Please find your official invitation attached to this email. \n
+    Please present the QR code in the invitation for scanning at the door of the event for check-in. \n
+     `,
     attachments: [
       {
-        filename: "qrcode.pdf",
+        filename: `Access Card for ${name}.pdf`,
         content: pdfBuffer,
       },
     ],
@@ -258,7 +269,7 @@ app.post("/api/users", auth, isAdmin, noFileUpload, async (req, res) => {
     const pdfBuffer = await generatePDF(name, qrcodeBuffer);
 
     // Send email (Uncomment in production)
-    await sendEmail(email, pdfBuffer);
+    await sendEmail(email, pdfBuffer, user.name);
     // await sendEmail(email, pdfBuffer);
 
     delete user.password;
@@ -377,45 +388,39 @@ app.get("/api/stats", auth, isAdmin, async (req, res) => {
   }
 });
 
-// Download QR code for a specific user as PDF
-app.get(
-  "/api/users/:id/download-qrcode",
-  auth,
-  noFileUpload,
-  async (req, res) => {
-    try {
-      // Fetch user by ID
-      const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [
-        req.params.id,
-      ]);
-      const user = userResult.rows[0];
+app.get("/api/users/:id/download-qrcode", auth, noFileUpload, async (req, res) => {
+  try {
+    // Fetch user by ID
+    const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [
+      req.params.id,
+    ]);
+    const user = userResult.rows[0];
 
-      if (!user) {
-        return res.status(404).send({ message: "User not found." });
-      }
-
-      // Generate QR code
-      const qrcodeBuffer = await generateQrCode(user.qrcode);
-
-      // Generate PDF with QR code
-      const pdfBuffer = await generatePDF(user.name, qrcodeBuffer);
-
-      // Set response headers for file download
-      // res.setHeader("Content-Type", "application/pdf");
-      res.setHeader("Content-Length", pdfBuffer.length);
-      res.setHeader("Content-Type", "application/octet-stream");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename=${user.name}_qrcode.pdf`
-      );
-
-      // Send PDF buffer as a downloadable file
-      res.send(pdfBuffer);
-    } catch (error) {
-      res.status(500).send({ message: "Could not download QR code." });
+    if (!user) {
+      return res.status(404).send({ message: "User not found." });
     }
+
+    // Generate QR code buffer
+    const qrcodeBuffer = await generateQrCode(user.qrcode);
+
+    // Generate PDF with QR code
+    const pdfBuffer = await generatePDF(user.name, qrcodeBuffer);
+
+    // Set response headers for file download
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Length", pdfBuffer.length);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${user.name}_qrcode.pdf"`
+    );
+
+    // Send PDF buffer as a downloadable file
+    res.end(pdfBuffer);  // Use res.end() to send the buffer properly
+  } catch (error) {
+    console.error('Error generating or downloading PDF:', error);
+    res.status(500).send({ message: "Could not download QR code." });
   }
-);
+});
 
 // Verify user by ID
 app.post("/api/users/:id/verify", auth, noFileUpload, async (req, res) => {
