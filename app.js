@@ -707,9 +707,9 @@ const seedAdmins = async (admins) => {
   await seedAdmins([
     {
       id: generateUlid(),
-      name: 'Deji Alarape',
-      email: 'dej@example.com',
-      password: 'password',
+      name: process.env.ADMIN_NAME,
+      email: process.env.ADMIN_EMAIL,
+      password: process.env.ADMIN_PASSWORD,
     },
   ])
 })()
