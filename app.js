@@ -656,6 +656,15 @@ const addInviteSentColumn = async () => {
   }
 }
 
+const dropUsersTable = async () => {
+  try {
+    await pool.query('DROP TABLE IF EXISTS users')
+    console.log('Users table dropped.')
+  } catch (error) {
+    console.error('Error dropping users table:', error)
+  }
+}
+
 const createUsersTable = async () => {
   try {
     await pool.query(`
@@ -701,6 +710,7 @@ const seedAdmins = async (admins) => {
 
 // Execute once
 ;(async () => {
+  await dropUsersTable()
   await createUsersTable()
   await addInviteDownloadColumn()
   await addInviteSentColumn()
