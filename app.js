@@ -93,12 +93,7 @@ const generateUlid = () => {
   return crypto.randomBytes(10).toString("hex");
 };
 
-// Fetch image from Cloudinary or any URL
-const fetchImage = async (url) => {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-  return Buffer.from(await response.arrayBuffer());
-};
+
 
 const generatePDF = async (username, qrcodeBuffer) => {
   try {
@@ -120,9 +115,9 @@ const generatePDF = async (username, qrcodeBuffer) => {
     username = username.charAt(0).toUpperCase() + username.slice(1);
 
     firstPage.drawText(username, {
-      x: 650,
+      x: 600,
       y: 400,
-      size: 30,
+      size: 34,
       font: playfairFont,
       color: rgb(1, 1, 1),
     });
@@ -139,16 +134,15 @@ const generatePDF = async (username, qrcodeBuffer) => {
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
   port: process.env.EMAIL_PORT,
-  // secure: process.env.EMAIL_SECURE,
   auth: {
-    user: process.env.EMAIL_ADDRESS,
+    user: 'apikey',
     pass: process.env.EMAIL_PASSWORD,
   },
 });
 
 const sendEmail = async (email, pdfBuffer, name) => {
   await transporter.sendMail({
-    from: process.env.EMAIL_ADDRESS,
+    from: `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_ADDRESS}>`,
     to: email,
     subject: "Your Invite to our Wedding",
     text: `
@@ -284,7 +278,7 @@ app.post("/api/users", auth, isAdmin, noFileUpload, async (req, res) => {
 // Admin: Bulk create users
 app.post("/api/users/bulk", auth, isAdmin, async (req, res) => {
   try {
-    const { users } = req.body; // Array of {name, email}
+    const { users } = req.body;
     const createdUsers = [];
 
     for (const userData of users) {
