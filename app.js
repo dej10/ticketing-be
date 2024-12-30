@@ -267,11 +267,12 @@ app.post('/api/users/bulk', auth, isAdmin, fileUpload, async (req, res) => {
 
     for (const row of results.data) {
       try {
-        if (!row['First Name'] || !row['Last Name']) {
-          continue
-        }
+        const firstName = row['First Name']?.trim() || ''
+        const lastName = row['Last Name']?.trim() || ''
 
-        const name = `${row['First Name'].trim()} ${row['Last Name'].trim()}`
+        if (!firstName && !lastName) continue
+
+        const name = [firstName, lastName].filter(Boolean).join(' ')
         const email = row['Email'] ? row['Email'].trim() : null
 
         const comparisonKey = `${name.toLowerCase()}${email ? `|${email.toLowerCase()}` : ''}`
