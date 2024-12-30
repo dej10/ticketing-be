@@ -323,25 +323,44 @@ app.get('/api/users/download-all-invites', auth, isAdmin, async (req, res) => {
   try {
     const zip = new JSZip()
 
-    const result = await pool.query('SELECT * FROM users WHERE role = $1', ['customer'])
+    const result = await pool.query(
+      `
+      SELECT * FROM users 
+      WHERE role = $1 
+      AND (invite_downloaded = FALSE OR invite_downloaded IS NULL)
+    `,
+      ['customer']
+    )
+
     const users = result.rows
 
+    if (users.length === 0) {
+      return res.status(200).send({
+        message: 'No new invites to download',
+      })
+    }
+
     const pdfsFolder = zip.folder('invites')
+
+    const processed = {
+      successful: [],
+      failed: [],
+    }
 
     for (const user of users) {
       try {
         const qrcodeBuffer = await generateQrCode(user.qrcode)
         const pdfBuffer = await generatePDF(user.name, qrcodeBuffer)
-
         const safeFileName = `${user.name.replace(/[/\\?%*:|"<>]/g, '-')}.pdf`
         pdfsFolder.file(safeFileName, pdfBuffer)
+        processed.successful.push(user.id)
       } catch (error) {
         console.error(`Error generating PDF for user ${user.name}:`, error)
+        processed.failed.push(user.id)
         continue
       }
     }
 
-    // Generate zip file
     const zipBuffer = await zip.generateAsync({
       type: 'nodebuffer',
       compression: 'DEFLATE',
@@ -350,12 +369,25 @@ app.get('/api/users/download-all-invites', auth, isAdmin, async (req, res) => {
       },
     })
 
+    if (processed.successful.length > 0) {
+      await pool.query(
+        `
+        UPDATE users 
+        SET invite_downloaded = TRUE,
+            invite_downloaded_at = NOW()
+        WHERE id = ANY($1)
+      `,
+        [processed.successful]
+      )
+    }
+
     // Set headers for file download
     res.setHeader('Content-Type', 'application/zip')
-    res.setHeader('Content-Disposition', 'attachment; filename="all-invites.zip"')
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="new-invites-${new Date().toISOString().split('T')[0]}.zip"`
+    )
     res.setHeader('Content-Length', zipBuffer.length)
-
-    // Send the zip file
     res.send(zipBuffer)
   } catch (error) {
     console.error('Error generating zip file:', error)
@@ -597,6 +629,19 @@ app.delete('/api/users/:id', auth, isAdmin, async (req, res) => {
   }
 })
 
+const addInviteDownloadColumn = async () => {
+  try {
+    await pool.query(`
+      ALTER TABLE users 
+      ADD COLUMN IF NOT EXISTS invite_downloaded BOOLEAN DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS invite_downloaded_at TIMESTAMP;
+    `)
+    console.log('Added invite download tracking columns')
+  } catch (error) {
+    console.error('Error adding invite download tracking columns:', error)
+  }
+}
+
 const addInviteSentColumn = async () => {
   try {
     await pool.query(`
@@ -656,6 +701,7 @@ const seedAdmins = async (admins) => {
 // Execute once
 ;(async () => {
   await createUsersTable()
+  await addInviteDownloadColumn()
   await addInviteSentColumn()
   await seedAdmins([
     {
