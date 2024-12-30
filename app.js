@@ -144,7 +144,7 @@ const sendEmail = async (email, pdfBuffer, name) => {
   })
 }
 
-// Auth Middleware
+// Auth Middle ware
 const auth = async (req, res, next) => {
   try {
     const token = req.header('Authorization').replace('Bearer ', '')
