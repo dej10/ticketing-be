@@ -134,3 +134,4 @@ jobs:
 
              # Restart nginx
              echo '${{ secrets.PASSWORD}}' | sudo -S service nginx restart
+             
