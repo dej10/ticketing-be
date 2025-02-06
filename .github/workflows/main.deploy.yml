@@ -131,6 +131,7 @@ jobs:
 
              # Copy and override conf in nginx
              cp ./.github/workflows/nginx-configs/${{ env.DOMAIN }}.conf /etc/nginx/sites-enabled/${{ env.DOMAIN }}.conf
+             
 
              # Restart nginx
              echo '${{ secrets.PASSWORD}}' | sudo -S service nginx restart
