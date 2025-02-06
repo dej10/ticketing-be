@@ -24,7 +24,7 @@ const noFileUpload = multer().none()
 const fileUpload = multer().any()
 
 const corsOpts = {
-  origin: ['http://localhost:3002', 'https://ticketing-fe.pages.dev' , 'https://axxis.wearcheck.co'],
+  origin: ['http://localhost:3002', 'https://ticketing-fe.pages.dev' , 'https://axxis.wearecheck.co'],
 
   methods: ['GET', 'POST', 'DELETE'],
 
